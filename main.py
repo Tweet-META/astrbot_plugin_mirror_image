@@ -2,7 +2,6 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.message.components import Image, Reply
-from .utils import get_bot_api
 import subprocess
 import sys
 import aiohttp
@@ -100,13 +99,12 @@ class MyPlugin(Star):
             logger.error(f"处理图片失败: {e}")
 
         finally:
-            if 'tmp_file' in locals() and tmp_file and os.path.exists(tmp_file.name):
+            if tmp_file.name and os.path.exists(tmp_file.name):
+                # 异步延迟删除，防止文件还在传输时被删
                 async def delay_delete(path):
                     await asyncio.sleep(10)
-                    try:
-                        os.unlink(path)
-                    except:
-                        pass
+                    try: os.unlink(path)
+                    except: pass
                 asyncio.create_task(delay_delete(tmp_file.name))
 
     
@@ -125,7 +123,7 @@ class MyPlugin(Star):
             图片 URL，失败返回 None
         """
         # 尝试通过 bot API 获取原消息
-        bot = get_bot_api(event)
+        bot = getattr(event, "bot", None)
         if bot:
             try:
                 # 获取原消息内容

@@ -24,34 +24,65 @@ class MyPlugin(Star):
             from PIL import Image as PILImage
 
     def _save_mirror_image(self, img_bytes: bytes, mode: str, save_path: str):
-        """核心处理逻辑：读取字节流 -> 镜像转换 -> 保存到 save_path"""
         from io import BytesIO
-        img = PILImage.open(BytesIO(img_bytes)).convert("RGBA")
-        w, h = img.size
+        from PIL import Image as PILImage, ImageSequence
         
+        img = PILImage.open(BytesIO(img_bytes))
+        
+        # 检查是否是动图 (GIF)
+        if getattr(img, "is_animated", False):
+            frames = []
+            # 遍历 GIF 的每一帧
+            for frame in ImageSequence.Iterator(img):
+                # 转换模式并处理镜像
+                f = frame.convert("RGBA")
+                processed_frame = self._apply_mirror_to_pil(f, mode)
+                
+                # 尽量保留原帧的持续时间 (duration)
+                duration = frame.info.get('duration', 100)
+                processed_frame.info['duration'] = duration
+                frames.append(processed_frame)
+            
+            # 重新封装成 GIF 保存
+            frames[0].save(
+                save_path, 
+                save_all=True, 
+                append_images=frames[1:], 
+                loop=img.info.get('loop', 0),
+                duration=[f.info.get('duration', 100) for f in frames],
+                format="GIF",
+                disposal=2 # 关键：防止多帧重叠
+            )
+        else:
+            # 静态图处理
+            img = img.convert("RGBA")
+            new_img = self._apply_mirror_to_pil(img, mode)
+            new_img.save(save_path, "PNG")
+
+    def _apply_mirror_to_pil(self, img, mode):
+        """核心镜像算法，输入 PIL 对象，输出镜像后的 PIL 对象"""
+        from PIL import Image as PILImage
+        w, h = img.size
         new_img = PILImage.new("RGBA", (w, h))
         
         if mode == "右":
             part = img.crop((w // 2, 0, w, h))
             new_img.paste(part.transpose(PILImage.FLIP_LEFT_RIGHT), (0, 0))
             new_img.paste(part, (w // 2, 0))
-
         elif mode == "上":
             part = img.crop((0, 0, w, h // 2))
             new_img.paste(part, (0, 0))
             new_img.paste(part.transpose(PILImage.FLIP_TOP_BOTTOM), (0, h // 2))
-
         elif mode == "下":
             part = img.crop((0, h // 2, w, h))
             new_img.paste(part.transpose(PILImage.FLIP_TOP_BOTTOM), (0, 0))
             new_img.paste(part, (0, h // 2))
-
         else: # 默认左
             part = img.crop((0, 0, w // 2, h))
             new_img.paste(part, (0, 0))
             new_img.paste(part.transpose(PILImage.FLIP_LEFT_RIGHT), (w // 2, 0))
-
-        new_img.save(save_path, "PNG")
+            
+        return new_img
 
     @filter.command("对称")
     async def mirror(self, event: AstrMessageEvent):
